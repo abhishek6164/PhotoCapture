@@ -44,10 +44,8 @@ async function connectDB() {
         console.error("MONGODB_URI not set in .env");
         return;
     }
-    await mongoose.connect(uri, {
-        useNewUrlParser: true,
-        useUnifiedTopology: true
-    });
+    // modern mongoose doesn't require the legacy options; keep it simple
+    await mongoose.connect(uri);
     console.log("Connected to MongoDB");
 }
 
@@ -129,3 +127,19 @@ app.post("/api/upload", async (req, res) => {
 app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
 });
+
+// Graceful shutdown (helps nodemon / Ctrl+C behavior and returns proper exit codes)
+const shutdown = async (signal) => {
+    try {
+        console.log(`Received ${signal} — closing server and MongoDB connection...`);
+        await mongoose.disconnect();
+        console.log('MongoDB disconnected');
+        process.exit(0);
+    } catch (err) {
+        console.error('Error during shutdown', err);
+        process.exit(1);
+    }
+};
+
+process.on('SIGINT', () => shutdown('SIGINT'));
+process.on('SIGTERM', () => shutdown('SIGTERM'));
