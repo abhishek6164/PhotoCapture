@@ -1,11 +1,11 @@
-require("dotenv").config();
-const express = require("express");
-const cors = require("cors");
-const mongoose = require("mongoose");
-const ImageKit = require("imagekit");
-const bodyParser = require("body-parser");
+require('dotenv').config();
+const express = require('express');
+const cors = require('cors');
+const mongoose = require('mongoose');
+const ImageKit = require('imagekit');
+const bodyParser = require('body-parser');
 
-const Image = require("./models/Image");
+const Image = require('./models/Image');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -13,11 +13,11 @@ const PORT = process.env.PORT || 5000;
 // Middlewares
 app.use(cors());
 app.use(bodyParser.json({
-    limit: "12mb"
+    limit: '50mb'
 }));
 app.use(bodyParser.urlencoded({
     extended: true,
-    limit: "12mb"
+    limit: '50mb'
 }));
 
 // Setup ImageKit (trim env values to avoid accidental whitespace in .env)
@@ -41,33 +41,35 @@ const imagekit = new ImageKit({
 async function connectDB() {
     const uri = process.env.MONGODB_URI;
     if (!uri) {
-        console.error("MONGODB_URI not set in .env");
+        console.error('MONGODB_URI not set in .env');
         return;
     }
-    // modern mongoose doesn't require the legacy options; keep it simple
-    await mongoose.connect(uri);
-    console.log("Connected to MongoDB");
+    try {
+        await mongoose.connect(uri);
+        console.log('Connected to MongoDB');
+    } catch (err) {
+        console.error('MongoDB connection error:', err);
+        throw err;
+    }
 }
 
-connectDB().catch((err) => {
-    console.error("MongoDB connection error:", err);
-});
+connectDB().catch(() => {});
 
 // Health
-app.get("/", (req, res) => res.json({
+app.get('/', (req, res) => res.json({
     ok: true
 }));
 
 // Upload route - accepts array of images or single image
 // Expected body: { images: [{ src: 'data:image/jpeg;base64,...', filter: '90s' }, ...] }
-app.post("/api/upload", async (req, res) => {
+app.post('/api/upload', async (req, res, next) => {
     try {
         const {
             images
         } = req.body;
         if (!images || !Array.isArray(images) || images.length === 0) {
             return res.status(400).json({
-                error: "No images provided"
+                error: 'No images provided'
             });
         }
 
@@ -78,10 +80,10 @@ app.post("/api/upload", async (req, res) => {
             const src = item.src;
             const filter = item.filter || null;
 
-            if (!src || typeof src !== "string") continue;
+            if (!src || typeof src !== 'string') continue;
 
             // Strip data URL prefix if present
-            const base64 = src.startsWith("data:") ? src.split(",")[1] : src;
+            const base64 = src.startsWith('data:') ? src.split(',')[1] : src;
 
             const fileName = `photo_${Date.now()}_${i}.jpg`;
 
@@ -111,17 +113,32 @@ app.post("/api/upload", async (req, res) => {
             });
         }
 
-        res.json({
+        return res.json({
             success: true,
             results
         });
     } catch (err) {
-        console.error("Upload error:", err);
-        res.status(500).json({
-            error: "Upload failed",
-            details: err.message
+        // Pass to error handler
+        return next(err);
+    }
+});
+
+// Error handling middleware - return JSON for bodyParser / payload errors and others
+app.use((err, req, res, next) => {
+    console.error('Unhandled error:', err && err.message ? err.message : err);
+    // body-parser uses 'entity.too.large' or sets status 413 for payload too large
+    if (err && (err.type === 'entity.too.large' || err.status === 413)) {
+        return res.status(413).json({
+            error: 'Payload too large',
+            details: err.message || 'Request body exceeded size limit'
         });
     }
+
+    // Generic JSON error
+    return res.status(500).json({
+        error: 'Internal server error',
+        details: err ? err.message : 'unknown'
+    });
 });
 
 app.listen(PORT, () => {
@@ -131,7 +148,7 @@ app.listen(PORT, () => {
 // Graceful shutdown (helps nodemon / Ctrl+C behavior and returns proper exit codes)
 const shutdown = async (signal) => {
     try {
-        console.log(`Received ${signal} — closing server and MongoDB connection...`);
+        console.log(`Received ${signal} — closing MongoDB connection...`);
         await mongoose.disconnect();
         console.log('MongoDB disconnected');
         process.exit(0);
