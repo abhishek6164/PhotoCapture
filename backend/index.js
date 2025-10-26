@@ -109,6 +109,7 @@ app.post('/api/upload', async (req, res, next) => {
         } = req.body;
         if (!images || !Array.isArray(images) || images.length === 0) {
             return res.status(400).json({
+                success: false,
                 error: 'No images provided'
             });
         }
@@ -120,7 +121,13 @@ app.post('/api/upload', async (req, res, next) => {
             const src = item.src;
             const filter = item.filter || null;
 
-            if (!src || typeof src !== 'string') continue;
+            if (!src || typeof src !== 'string') {
+                results.push({
+                    uploaded: false,
+                    error: 'Invalid image data'
+                });
+                continue;
+            }
 
             // Strip data URL prefix if present
             const base64 = src.startsWith('data:') ? src.split(',')[1] : src;
@@ -171,8 +178,12 @@ app.post('/api/upload', async (req, res, next) => {
             results
         });
     } catch (err) {
-        // Pass to error handler
-        return next(err);
+        // Always return a JSON error response
+        console.error('[UPLOAD] fatal error', err && err.message ? err.message : err);
+        return res.status(500).json({
+            success: false,
+            error: err && err.message ? err.message : String(err)
+        });
     }
 });
 
