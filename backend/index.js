@@ -20,6 +20,16 @@ app.use(bodyParser.urlencoded({
     limit: '50mb'
 }));
 
+// Simple request logger to help debugging on Render
+app.use((req, res, next) => {
+    try {
+        console.log(`[REQ] ${req.method} ${req.url} - Content-Length: ${req.headers['content-length'] || 'unknown'}`);
+    } catch (e) {
+        /* noop */
+    }
+    next();
+});
+
 // Setup ImageKit (trim env values to avoid accidental whitespace in .env)
 const IMAGEKIT_PUBLIC_KEY = process.env.IMAGEKIT_PUBLIC_KEY ?
     process.env.IMAGEKIT_PUBLIC_KEY.trim() :
@@ -56,6 +66,36 @@ async function connectDB() {
 connectDB().catch(() => {});
 
 // Health
+
+// Quick test endpoint to verify ImageKit and DB from the deployed server
+app.post('/api/test-upload', async (req, res) => {
+    // a tiny 1x1 PNG base64 (no data: prefix)
+    const tinyBase64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGNgYAAAAAMAASsJTYQAAAAASUVORK5CYII=';
+    const fileName = `test_${Date.now()}.png`;
+    try {
+        const uploadResponse = await imagekit.upload({
+            file: tinyBase64,
+            fileName,
+            useUniqueFileName: true
+        });
+        const doc = await Image.create({
+            url: uploadResponse.url,
+            fileId: uploadResponse.fileId,
+            fileName: uploadResponse.name || fileName
+        });
+        return res.json({
+            ok: true,
+            uploadResponse,
+            docId: doc._id
+        });
+    } catch (err) {
+        console.error('[TEST-UPLOAD] error', err && err.message ? err.message : err);
+        return res.status(500).json({
+            ok: false,
+            error: err && err.message ? err.message : String(err)
+        });
+    }
+});
 app.get('/', (req, res) => res.json({
     ok: true
 }));
@@ -87,30 +127,43 @@ app.post('/api/upload', async (req, res, next) => {
 
             const fileName = `photo_${Date.now()}_${i}.jpg`;
 
-            // Upload to ImageKit
-            const uploadResponse = await imagekit.upload({
-                file: base64,
-                fileName,
-                useUniqueFileName: true,
-            });
+            // Log approximate size for this image (helps detect truncation issues)
+            try {
+                console.log(`[IMG] index=${i} filter=${filter} srcLength=${src.length}`);
+            } catch (e) {
+                /* ignore */
+            }
 
-            // Save to MongoDB
-            const doc = await Image.create({
-                url: uploadResponse.url,
-                fileId: uploadResponse.fileId,
-                fileName: uploadResponse.name || fileName,
-                filter,
-                meta: {
-                    width: uploadResponse.width,
-                    height: uploadResponse.height
-                },
-            });
-
-            results.push({
-                uploaded: true,
-                url: uploadResponse.url,
-                id: doc._id
-            });
+            // Upload to ImageKit with per-image error handling
+            try {
+                const uploadResponse = await imagekit.upload({
+                    file: base64,
+                    fileName,
+                    useUniqueFileName: true
+                });
+                // Save to MongoDB
+                const doc = await Image.create({
+                    url: uploadResponse.url,
+                    fileId: uploadResponse.fileId,
+                    fileName: uploadResponse.name || fileName,
+                    filter,
+                    meta: {
+                        width: uploadResponse.width,
+                        height: uploadResponse.height
+                    },
+                });
+                results.push({
+                    uploaded: true,
+                    url: uploadResponse.url,
+                    id: doc._id
+                });
+            } catch (uploadErr) {
+                console.error('[IMAGEKIT] upload error for', fileName, uploadErr && uploadErr.message ? uploadErr.message : uploadErr);
+                results.push({
+                    uploaded: false,
+                    error: uploadErr && uploadErr.message ? uploadErr.message : String(uploadErr)
+                });
+            }
         }
 
         return res.json({
