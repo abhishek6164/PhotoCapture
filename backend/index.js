@@ -242,7 +242,9 @@ app.use((err, req, res, next) => {
 // --- SERVER STARTUP ---
 
 app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
+    const PORT = process.env.PORT; // Render will inject the correct one
+    app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+
 });
 
 // --- GRACEFUL SHUTDOWN ---
