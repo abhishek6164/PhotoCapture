@@ -20,7 +20,10 @@ app.use(bodyParser.urlencoded({
     extended: true,
     limit: '100mb'
 }));
-app.use(cors());
+app.use(cors({
+    origin: '*',
+    methods: ['GET', 'POST'],
+}));
 
 
 // Simple request logger
@@ -111,6 +114,14 @@ app.post('/api/test-upload', async (req, res) => {
 
 // Main Upload Route
 app.post('/api/upload', async (req, res) => {
+    if (!IMAGEKIT_PUBLIC_KEY || !IMAGEKIT_PRIVATE_KEY || !IMAGEKIT_URL_ENDPOINT) {
+        console.error("ImageKit credentials missing!");
+        return res.status(500).json({
+            success: false,
+            error: "Server misconfigured. Missing ImageKit credentials.",
+        });
+    }
+
     // Check for large payload early
     if (req.headers['content-length'] > 100 * 1024 * 1024) { // 100MB check
         return res.status(413).json({
